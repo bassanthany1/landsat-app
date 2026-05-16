@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Landsat Land Cover Classification — ECE 435</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Spectral:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════
+   RESET & ROOT
+═══════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sky:        #f0f4f8;
+  --sky2:       #e4ecf4;
+  --white:      #ffffff;
+  --water:      #3b82c4;
+  --water-lt:   #dbeafe;
+  --water-dk:   #1e4f8a;
+  --veg:        #4a8c3f;
+  --veg-lt:     #dcf0d8;
+  --urban:      #c0442a;
+  --urban-lt:   #fde8e4;
+  --desert:     #c8922a;
+  --desert-lt:  #fef3dc;
+  --slate:      #475569;
+  --slate-lt:   #94a3b8;
+  --ink:        #1e293b;
+  --ink-lt:     #334155;
+  --border:     #cbd5e1;
+  --border-lt:  #e2e8f0;
+  --shadow:     rgba(30,41,59,0.07);
+  --shadow-md:  rgba(30,41,59,0.13);
+  --font-sans:  'Space Grotesk', sans-serif;
+  --font-serif: 'Spectral', serif;
+  --font-mono:  'JetBrains Mono', monospace;
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 18px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--sky);
+  color: var(--ink);
+  min-height: 100vh;
+  background-image:
+    linear-gradient(rgba(59,130,196,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,196,0.045) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   HEADER
+═══════════════════════════════════════════════════════ */
+header {
+  background: var(--white);
+  border-bottom: 1px solid var(--border-lt);
+  box-shadow: 0 1px 14px var(--shadow);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-inner {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 0 28px;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-emblem {
+  width: 42px; height: 42px; flex-shrink: 0;
+}
+.header-emblem svg { width: 100%; height: 100%; }
+
+.header-titles { flex: 1; min-width: 0; }
+.header-titles h1 {
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  letter-spacing: 0.01em; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.header-titles p {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--slate-lt); margin-top: 2px;
+}
+
+.model-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 14px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--slate); white-space: nowrap;
+  flex-shrink: 0; transition: all 0.3s;
+}
+.model-pill.ready { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.model-pill.error { border-color: #fca5a5; background: #fef2f2; color: #991b1b; }
+
+.pill-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--slate-lt); flex-shrink: 0;
+}
+.model-pill.ready .pill-dot { background: #22c55e; animation: blink 2s infinite; }
+.model-pill.error .pill-dot { background: #ef4444; }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ═══════════════════════════════════════════════════════
+   PAGE GRID
+═══════════════════════════════════════════════════════ */
+.page {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 28px 28px 64px;
+  display: grid;
+  grid-template-columns: 356px 1fr;
+  gap: 22px;
+  align-items: start;
+}
+
+/* ═══════════════════════════════════════════════════════
+   SHARED CARD
+═══════════════════════════════════════════════════════ */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 18px var(--shadow);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border-lt);
+  display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(to right, var(--sky), var(--white));
+}
+
+.ch-icon {
+  width: 30px; height: 30px;
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.ch-icon.blue   { background: var(--water-lt); }
+.ch-icon.green  { background: var(--veg-lt); }
+.ch-icon.orange { background: var(--desert-lt); }
+
+.card-header h2 {
+  font-size: 11px; font-weight: 600; color: var(--ink);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.card-header p { font-size: 10.5px; color: var(--slate-lt); margin-top: 1px; }
+
+.card-body { padding: 18px; }
+
+/* ═══════════════════════════════════════════════════════
+   LEFT PANEL
+═══════════════════════════════════════════════════════ */
+.left-panel {
+  display: flex; flex-direction: column; gap: 18px;
+  position: sticky; top: 82px;
+}
+
+/* Dropzone */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--r-md);
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  position: relative;
+  background: var(--sky);
+}
+.dropzone:hover, .dropzone.drag-over {
+  border-color: var(--water);
+  background: var(--water-lt);
+}
+.dropzone input[type="file"] {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.dz-icon { font-size: 32px; display: block; margin-bottom: 10px; }
+.dropzone h3 { font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.dropzone p  { font-size: 11.5px; color: var(--slate-lt); line-height: 1.6; }
+
+/* File list */
+.file-list { display: flex; flex-direction: column; gap: 5px; }
+.file-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--sky);
+  border: 1px solid var(--border-lt);
+  font-family: var(--font-mono); font-size: 10px;
+}
+.ftag {
+  padding: 2px 6px; border-radius: 4px;
+  font-size: 9.5px; font-weight: 500; flex-shrink: 0;
+}
+.ftag.band { background: var(--water-lt); color: var(--water-dk); }
+.ftag.mtl  { background: var(--veg-lt);   color: var(--veg); }
+.ftag.unk  { background: var(--border-lt);color: var(--slate); }
+.fname { color: var(--ink-lt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fsize { color: var(--slate-lt); flex-shrink: 0; }
+.fok   { color: var(--veg); flex-shrink: 0; }
+
+/* Checklist */
+.checklist { display: flex; flex-direction: column; gap: 9px; }
+.check-item {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--slate-lt);
+  font-family: var(--font-mono);
+  transition: color 0.2s;
+}
+.check-item.done { color: var(--veg); }
+.check-icon {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1.5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; flex-shrink: 0; transition: all 0.2s; color: var(--border);
+}
+.check-item.done .check-icon {
+  background: var(--veg); border-color: var(--veg); color: white;
+}
+
+/* Error */
+.alert-error {
+  display: none;
+  background: var(--urban-lt);
+  border: 1px solid #fca5a5;
+  border-radius: var(--r-md);
+  padding: 11px 14px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--urban); line-height: 1.5;
+}
+.alert-error.visible { display: block; }
+
+/* Progress */
+.progress-wrap { display: none; flex-direction: column; gap: 0; }
+.progress-wrap.visible { display: flex; }
+.progress-track {
+  height: 5px; background: var(--border-lt);
+  border-radius: 3px; overflow: hidden; margin-bottom: 14px;
+}
+.progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--water), var(--veg));
+  border-radius: 3px; transition: width 0.5s ease;
+}
+.progress-steps { display: flex; flex-direction: column; gap: 6px; }
+.progress-step {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--slate-lt); transition: color 0.3s;
+}
+.progress-step.active { color: var(--water); font-weight: 500; }
+.progress-step.done   { color: #86efac; }
+.step-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border); flex-shrink: 0; transition: background 0.3s;
+}
+.progress-step.active .step-dot { background: var(--water); animation: blink 1s infinite; }
+.progress-step.done   .step-dot { background: #22c55e; animation: none; }
+
+/* Buttons */
+.btn-group { display: flex; flex-direction: column; gap: 10px; }
+
+.btn {
+  width: 100%; padding: 13px 20px;
+  border-radius: var(--r-md);
+  font-family: var(--font-sans);
+  font-size: 13.5px; font-weight: 600;
+  letter-spacing: 0.02em; cursor: pointer;
+  border: none; transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-primary {
+  background: var(--water); color: white;
+  box-shadow: 0 2px 10px rgba(59,130,196,0.28);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--water-dk);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 18px rgba(59,130,196,0.38);
+}
+.btn-demo {
+  background: var(--white); color: var(--veg);
+  border: 1.5px solid var(--veg);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+.btn-demo:hover:not(:disabled) {
+  background: var(--veg-lt);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(74,140,63,0.2);
+}
+.btn:disabled { opacity: 0.42; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+.btn-divider {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--slate-lt); letter-spacing: 0.1em;
+}
+.btn-divider::before, .btn-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border-lt);
+}
+
+/* ═══════════════════════════════════════════════════════
+   RIGHT PANEL
+═══════════════════════════════════════════════════════ */
+.right-panel { display: flex; flex-direction: column; gap: 20px; }
+
+/* Empty state */
+.empty-state {
+  background: var(--white);
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 18px var(--shadow);
+  padding: 80px 40px;
+  text-align: center;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 14px;
+}
+.empty-globe { font-size: 60px; opacity: 0.22; }
+.empty-state h2 {
+  font-family: var(--font-serif);
+  font-size: 21px; font-weight: 600;
+  color: var(--ink); opacity: 0.5;
+}
+.empty-state p {
+  font-size: 13px; color: var(--slate-lt);
+  max-width: 340px; line-height: 1.75;
+}
+
+/* Results */
+#results { display: none; flex-direction: column; gap: 18px; }
+#results.visible { display: flex; }
+
+/* Meta bar */
+.result-meta-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+}
+.result-meta-bar h2 {
+  font-family: var(--font-serif);
+  font-size: 20px; font-weight: 600; color: var(--ink); flex: 1;
+}
+.meta-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 12px; border-radius: 999px;
+  background: var(--white); border: 1px solid var(--border-lt);
+  font-family: var(--font-mono); font-size: 11px; color: var(--slate);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+
+/* Two-column results grid */
+.results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* ── Map panel ── */
+.map-panel {
+  background: var(--white);
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 18px var(--shadow);
+  overflow: hidden;
+}
+.panel-bar {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-lt);
+  background: linear-gradient(to right, var(--sky), var(--white));
+  font-family: var(--font-mono);
+  font-size: 10.5px; font-weight: 500;
+  color: var(--slate); text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex; align-items: center; gap: 8px;
+}
+
+.map-frame {
+  position: relative;
+  background: #1b2a1b;
+  aspect-ratio: 1;
+}
+.map-frame img {
+  width: 100%; height: 100%; object-fit: cover;
+  display: block; image-rendering: pixelated;
+  opacity: 0; transition: opacity 0.7s ease;
+}
+.map-frame img.loaded { opacity: 1; }
+
+/* GIS corner brackets */
+.map-frame::before, .map-frame::after,
+.mc-bl, .mc-br {
+  content: '';
+  position: absolute;
+  width: 15px; height: 15px;
+  border-color: rgba(255,255,255,0.45);
+  border-style: solid; z-index: 2; pointer-events: none;
+}
+.map-frame::before { top:7px;    left:7px;  border-width: 2px 0 0 2px; }
+.map-frame::after  { top:7px;    right:7px; border-width: 2px 2px 0 0; }
+.mc-bl             { bottom:7px; left:7px;  border-width: 0 0 2px 2px; }
+.mc-br             { bottom:7px; right:7px; border-width: 0 2px 2px 0; }
+
+.map-legend {
+  position: absolute; bottom: 11px; right: 11px;
+  background: rgba(255,255,255,0.93);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(0,0,0,0.09);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  display: flex; flex-direction: column; gap: 6px; z-index: 3;
+}
+.legend-title {
+  font-family: var(--font-mono); font-size: 8.5px;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--slate); margin-bottom: 1px; font-weight: 500;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-lt);
+}
+.legend-swatch {
+  width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+.map-coords {
+  position: absolute; bottom: 11px; left: 11px;
+  font-family: var(--font-mono); font-size: 9px;
+  color: rgba(255,255,255,0.65); z-index: 3; line-height: 1.6;
+}
+
+/* ── Stats panel ── */
+.stats-panel {
+  background: var(--white);
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 18px var(--shadow);
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.stats-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+.stat-card {
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-md);
+  padding: 13px 13px 13px 17px;
+  position: relative; overflow: hidden;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.stat-card:hover { box-shadow: 0 4px 18px var(--shadow-md); transform: translateY(-1px); }
+
+.stat-accent {
+  position: absolute; top: 0; left: 0;
+  width: 4px; height: 100%;
+}
+.stat-card.water  .stat-accent { background: var(--water); }
+.stat-card.veg    .stat-accent { background: var(--veg); }
+.stat-card.urban  .stat-accent { background: var(--urban); }
+.stat-card.desert .stat-accent { background: var(--desert); }
+
+.stat-card.water  { background: linear-gradient(120deg, var(--water-lt) 0%, var(--white) 60%); }
+.stat-card.veg    { background: linear-gradient(120deg, var(--veg-lt)   0%, var(--white) 60%); }
+.stat-card.urban  { background: linear-gradient(120deg, var(--urban-lt) 0%, var(--white) 60%); }
+.stat-card.desert { background: linear-gradient(120deg, var(--desert-lt)0%, var(--white) 60%); }
+
+.stat-row-top {
+  display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 5px;
+}
+.stat-label {
+  font-family: var(--font-mono); font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--slate);
+}
+.stat-pct {
+  font-family: var(--font-mono); font-size: 9.5px;
+  padding: 2px 8px; border-radius: 999px; font-weight: 600;
+}
+.stat-card.water  .stat-pct { background: var(--water-lt); color: var(--water-dk); }
+.stat-card.veg    .stat-pct { background: var(--veg-lt);   color: var(--veg); }
+.stat-card.urban  .stat-pct { background: var(--urban-lt); color: var(--urban); }
+.stat-card.desert .stat-pct { background: var(--desert-lt);color: var(--desert); }
+
+.stat-area {
+  font-size: 22px; font-weight: 700; line-height: 1; margin-bottom: 3px;
+}
+.stat-card.water  .stat-area { color: var(--water); }
+.stat-card.veg    .stat-area { color: var(--veg); }
+.stat-card.urban  .stat-area { color: var(--urban); }
+.stat-card.desert .stat-area { color: var(--desert); }
+
+.stat-unit { font-size: 11px; font-weight: 400; color: var(--slate-lt); margin-left: 3px; }
+.stat-px {
+  font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--slate-lt); margin-bottom: 8px;
+}
+.stat-bar-track {
+  height: 4px; background: var(--border-lt);
+  border-radius: 2px; overflow: hidden;
+}
+.stat-bar-fill {
+  height: 100%; border-radius: 2px; width: 0%;
+  transition: width 1.2s cubic-bezier(.16,1,.3,1);
+}
+.stat-card.water  .stat-bar-fill { background: var(--water); }
+.stat-card.veg    .stat-bar-fill { background: var(--veg); }
+.stat-card.urban  .stat-bar-fill { background: var(--urban); }
+.stat-card.desert .stat-bar-fill { background: var(--desert); }
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════ */
+@media (max-width: 1060px) {
+  .page { grid-template-columns: 1fr; padding: 20px 18px 48px; }
+  .left-panel { position: static; }
+  .results-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .header-inner { padding: 0 16px; height: 58px; }
+  .header-titles h1 { font-size: 13px; }
+  .model-pill { display: none; }
+  .page { padding: 14px 12px 40px; gap: 14px; }
+  .card-body { padding: 14px; }
+  .empty-state { padding: 48px 20px; }
+  .result-meta-bar h2 { font-size: 17px; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════ HEADER ════════════ -->
+<header>
+  <div class="header-inner">
+
+    <div class="header-emblem">
+      <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="42" height="42" rx="9" fill="#f0f4f8"/>
+        <rect x="4"  y="4"  width="15" height="15" rx="4" fill="#3b82c4" opacity="0.88"/>
+        <rect x="23" y="4"  width="15" height="15" rx="4" fill="#4a8c3f" opacity="0.88"/>
+        <rect x="4"  y="23" width="15" height="15" rx="4" fill="#c0442a" opacity="0.88"/>
+        <rect x="23" y="23" width="15" height="15" rx="4" fill="#c8922a" opacity="0.88"/>
+      </svg>
+    </div>
+
+    <div class="header-titles">
+      <h1>Landsat Land Cover Classification</h1>
+      <p>Amira Abdelnasser . Bassant Hany . Toqa Ahmed . Gehad Magdy . Rahma Ahmed . Rahma Diaa . Samah Gouda . Fatma Basha . Menna Andelmohsen</p>
+    </div>
+
+    <div class="model-pill" id="model-pill">
+      <div class="pill-dot"></div>
+      <span id="pill-text">Checking model…</span>
+    </div>
+
+  </div>
+</header>
+
+<!-- ════════════ PAGE ════════════ -->
+<div class="page">
+
+  <!-- ── LEFT PANEL ── -->
+  <div class="left-panel">
+
+    <!-- Scene Input -->
+    <div class="card">
+      <div class="card-header">
+        <div class="ch-icon blue">🛰️</div>
+        <div>
+          <h2>Scene Input</h2>
+          <p>Upload Landsat 8 band files + MTL</p>
+        </div>
+      </div>
+      <div class="card-body">
+
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" multiple accept=".TIF,.tif,.tiff,.txt">
+          <span class="dz-icon">📡</span>
+          <h3>Drop files here</h3>
+          <p>Bands B1–B7 (.TIF) + MTL.txt<br>or click to browse</p>
+        </div>
+
+        <div id="file-list-section" style="display:none; margin-top:14px;">
+          <div style="font-family:var(--font-mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.1em;color:var(--slate-lt);margin-bottom:8px;">Staged Files</div>
+          <div class="file-list" id="file-list"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Requirements -->
+    <div class="card">
+      <div class="card-header">
+        <div class="ch-icon green">✅</div>
+        <div>
+          <h2>Requirements</h2>
+          <p>All three must be satisfied</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="checklist">
+          <div class="check-item" id="chk-bands">
+            <div class="check-icon">○</div>
+            7 band TIF files (B1 – B7)
+          </div>
+          <div class="check-item" id="chk-mtl">
+            <div class="check-icon">○</div>
+            MTL.txt metadata file
+          </div>
+          <div class="check-item" id="chk-model">
+            <div class="check-icon">○</div>
+            Trained model loaded
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="alert-error" id="error-msg"></div>
+
+    <!-- Progress -->
+    <div class="card progress-wrap" id="progress-wrap">
+      <div class="card-header">
+        <div class="ch-icon orange">⚙️</div>
+        <div><h2>Processing Pipeline</h2></div>
+      </div>
+      <div class="card-body">
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-steps">
+          <div class="progress-step" data-step="0"><div class="step-dot"></div>Loading + cropping bands</div>
+          <div class="progress-step" data-step="1"><div class="step-dot"></div>TOA radiometric calibration</div>
+          <div class="progress-step" data-step="2"><div class="step-dot"></div>Computing NDVI / NDWI / NDBI</div>
+          <div class="progress-step" data-step="3"><div class="step-dot"></div>Building feature stack (×10)</div>
+          <div class="progress-step" data-step="4"><div class="step-dot"></div>Running model inference</div>
+          <div class="progress-step" data-step="5"><div class="step-dot"></div>Generating map + statistics</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-group">
+      <button class="btn btn-primary" id="run-btn" disabled onclick="runPipeline()">
+        🔍 Run Classification
+      </button>
+      <div class="btn-divider">or use preloaded scene</div>
+      <button class="btn btn-demo" id="demo-btn" disabled onclick="runDemo()">
+        ⚡ Run Demo Prediction
+      </button>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="right-panel">
+
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-globe">🌍</div>
+      <h2>Awaiting Scene Input</h2>
+      <p>Upload your 7 Landsat band files and MTL.txt then click <strong>Run Classification</strong> — or try <strong>Run Demo Prediction</strong> to instantly classify a preloaded scene from Google Drive.</p>
+    </div>
+
+    <!-- Results (hidden until data arrives) -->
+    <div id="results">
+
+      <div class="result-meta-bar">
+        <h2>Classification Output</h2>
+        <div class="meta-chip">🤖 <span id="meta-model">—</span></div>
+        <div class="meta-chip">⏱ <span id="meta-time">—</span></div>
+        <div class="meta-chip">📐 2000 × 2000 px · 3,600 km²</div>
+      </div>
+
+      <div class="results-grid">
+
+        <!-- Map -->
+        <div class="map-panel">
+          <div class="panel-bar">🗺 Classification Map</div>
+          <div class="map-frame" id="map-frame">
+            <div class="mc-bl"></div>
+            <div class="mc-br"></div>
+            <img id="result-map" src="" alt="Classification map">
+            <div class="map-coords">LC08 · Path 177 · Row 039<br>2024-03-01</div>
+            <div class="map-legend">
+              <div class="legend-title">Land Cover</div>
+              <div class="legend-item">
+                <span class="legend-swatch" style="background:#3b82c4"></span> Water
+              </div>
+              <div class="legend-item">
+                <span class="legend-swatch" style="background:#4a8c3f"></span> Vegetation
+              </div>
+              <div class="legend-item">
+                <span class="legend-swatch" style="background:#c0442a"></span> Urban
+              </div>
+              <div class="legend-item">
+                <span class="legend-swatch" style="background:#c8922a"></span> Desert
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-panel">
+          <div class="panel-bar">📊 Statistical Summary</div>
+          <div class="stats-body" id="stats-body"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let uploadedFiles = {};
+let modelReady    = false;
+let running       = false;
+
+// ── Model check ────────────────────────────────────────────────────────────
+async function checkModel() {
+  try {
+    const res  = await fetch('/check_models');
+    const data = await res.json();
+    const pill = document.getElementById('model-pill');
+    const text = document.getElementById('pill-text');
+    if (data.ready) {
+      pill.classList.add('ready');
+      text.textContent = data.model;
+      modelReady = true;
+      setCheck('chk-model', true);
+    } else {
+      pill.classList.add('error');
+      text.textContent = 'Model not found';
+      showError('Model files missing. ' + (data.error || ''));
+    }
+  } catch(e) {
+    document.getElementById('model-pill').classList.add('error');
+    document.getElementById('pill-text').textContent = 'Server offline';
+  }
+  updateButtons();
+}
+
+// ── File handling ──────────────────────────────────────────────────────────
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  handleFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', e => handleFiles([...e.target.files]));
+
+function handleFiles(files) {
+  files.forEach(f => { uploadedFiles[f.name] = f; });
+  renderFileList(); updateChecks(); updateButtons();
+}
+
+function renderFileList() {
+  const sec  = document.getElementById('file-list-section');
+  const list = document.getElementById('file-list');
+  const files = Object.values(uploadedFiles);
+  if (!files.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = files.map(f => {
+    const isBand = /B[1-7]\.TIF$/i.test(f.name);
+    const isMTL  = /MTL\.txt$/i.test(f.name) || /MTL\.TXT$/.test(f.name);
+    const cls    = isBand ? 'band' : isMTL ? 'mtl' : 'unk';
+    const lbl    = isBand ? 'Band' : isMTL ? 'MTL' : '?';
+    const sz     = (f.size / 1024 / 1024).toFixed(1) + ' MB';
+    return `<div class="file-item">
+      <span class="ftag ${cls}">${lbl}</span>
+      <span class="fname">${f.name}</span>
+      <span class="fsize">${sz}</span>
+      <span class="fok">✓</span>
+    </div>`;
+  }).join('');
+}
+
+function getBandCount() {
+  return Object.keys(uploadedFiles).filter(k => /B[1-7]\.TIF$/i.test(k)).length;
+}
+function hasMTL() {
+  return Object.keys(uploadedFiles).some(k => /MTL\.txt$/i.test(k) || /MTL\.TXT$/.test(k));
+}
+function updateChecks() {
+  setCheck('chk-bands', getBandCount() === 7);
+  setCheck('chk-mtl',   hasMTL());
+}
+function setCheck(id, done) {
+  const el   = document.getElementById(id);
+  const icon = el.querySelector('.check-icon');
+  el.classList.toggle('done', done);
+  icon.textContent = done ? '✓' : '○';
+}
+function updateButtons() {
+  const ready = getBandCount() === 7 && hasMTL() && modelReady && !running;
+  document.getElementById('run-btn').disabled  = !ready;
+  document.getElementById('demo-btn').disabled = !modelReady || running;
+}
+
+// ── Progress ───────────────────────────────────────────────────────────────
+const STEPS = document.querySelectorAll('.progress-step');
+let currentStep = 0;
+
+function startProgress() {
+  document.getElementById('progress-wrap').classList.add('visible');
+  document.getElementById('progress-fill').style.width = '0%';
+  currentStep = 0;
+  STEPS.forEach(s => s.classList.remove('active','done'));
+  advanceStep();
+  const durations = [3000,4000,3000,2000,15000,2000];
+  let total = 0;
+  durations.forEach(d => { total += d; setTimeout(advanceStep, total); });
+}
+function advanceStep() {
+  STEPS.forEach((s, i) => {
+    s.classList.toggle('done',   i < currentStep);
+    s.classList.toggle('active', i === currentStep);
+    if (i > currentStep) s.classList.remove('active','done');
+  });
+  document.getElementById('progress-fill').style.width =
+    Math.min(90, (currentStep / STEPS.length) * 90) + '%';
+  currentStep++;
+}
+function finishProgress() {
+  STEPS.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+  document.getElementById('progress-fill').style.width = '100%';
+}
+
+// ── Upload pipeline ────────────────────────────────────────────────────────
+async function runPipeline() {
+  if (running) return;
+  running = true; clearError(); updateButtons();
+  document.getElementById('results').classList.remove('visible');
+  document.getElementById('empty-state').style.display = 'none';
+  startProgress();
+  document.getElementById('run-btn').innerHTML = '⏳ Processing Landsat Scene…';
+
+  const fd = new FormData();
+  Object.values(uploadedFiles).forEach(f => fd.append(f.name, f));
+
+  try {
+    const res  = await fetch('/predict', { method: 'POST', body: fd });
+    const data = await res.json();
+    finishProgress();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+    renderResults(data);
+  } catch(e) {
+    showError('Pipeline error: ' + e.message);
+    document.getElementById('empty-state').style.display = 'flex';
+  } finally {
+    running = false;
+    document.getElementById('run-btn').innerHTML = '🔍 Run Classification';
+    updateButtons();
+  }
+}
+
+// ── Demo pipeline ──────────────────────────────────────────────────────────
+async function runDemo() {
+  if (running) return;
+  running = true; clearError(); updateButtons();
+  document.getElementById('results').classList.remove('visible');
+  document.getElementById('empty-state').style.display = 'none';
+  startProgress();
+  document.getElementById('demo-btn').innerHTML = '⏳ Loading Demo Scene…';
+
+  try {
+    const res  = await fetch('/demo_predict');
+    const data = await res.json();
+    finishProgress();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+    renderResults(data);
+  } catch(e) {
+    showError('Demo error: ' + e.message);
+    document.getElementById('empty-state').style.display = 'flex';
+  } finally {
+    running = false;
+    document.getElementById('demo-btn').innerHTML = '⚡ Run Demo Prediction';
+    updateButtons();
+  }
+}
+
+// ── Render results ─────────────────────────────────────────────────────────
+function renderResults(data) {
+  // map with fade-in
+  const img = document.getElementById('result-map');
+  img.classList.remove('loaded');
+  img.onload = () => img.classList.add('loaded');
+  img.src = 'data:image/png;base64,' + data.map_b64;
+
+  // meta
+  document.getElementById('meta-model').textContent = data.model;
+  document.getElementById('meta-time').textContent  = data.time_sec + 's';
+
+  // stat cards
+  const classes  = ['water','veg','urban','desert'];
+  const maxArea  = Math.max(...data.stats.map(s => s.area_km2));
+
+  document.getElementById('stats-body').innerHTML = data.stats.map((s, i) => `
+    <div class="stat-card ${classes[i]}">
+      <div class="stat-accent"></div>
+      <div class="stat-row-top">
+        <span class="stat-label">${s.class}</span>
+        <span class="stat-pct">${s.percent}%</span>
+      </div>
+      <div class="stat-area">
+        ${s.area_km2.toLocaleString()}<span class="stat-unit">km²</span>
+      </div>
+      <div class="stat-px">${s.pixels.toLocaleString()} pixels</div>
+      <div class="stat-bar-track">
+        <div class="stat-bar-fill" data-target="${(s.area_km2/maxArea*100).toFixed(1)}"></div>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('results').classList.add('visible');
+
+  // animate bars
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('.stat-bar-fill').forEach(b => {
+      b.style.width = b.dataset.target + '%';
+    });
+  }));
+
+  // scroll to results on mobile/tablet
+  if (window.innerWidth < 1060) {
+    setTimeout(() => {
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  }
+}
+
+// ── Error ──────────────────────────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = '⚠ ' + msg;
+  el.classList.add('visible');
+}
+function clearError() {
+  document.getElementById('error-msg').classList.remove('visible');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+checkModel();
+</script>
+</body>
+</html>
